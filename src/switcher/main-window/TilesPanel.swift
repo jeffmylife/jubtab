@@ -95,7 +95,13 @@ class TilesPanel: NSPanel {
         // cross-shortcut summon to mask the rebuild. Reveal it atomically now that contents
         // and Appearance are in their final state.
         alphaValue = 1
+        #if DEBUG
+        markAsDevBuild()
+        #endif
         makeKeyAndOrderFront(nil)
+        #if DEBUG
+        DevLatency.panelShown()
+        #endif
         // The artificial key-repeat measures its initial-delay grace from when the panel could be SEEN, and this
         // is the only anchor for that which is guaranteed to exist — see `SwitcherSession.panelShownAt`. Set
         // once per summon (a re-show within one session must not restart the grace under the user's fingers).
@@ -107,6 +113,21 @@ class TilesPanel: NSPanel {
         DispatchQueue.main.async { TilesView.scrollView.flashScrollers() }
         SearchDiscoveryHint.shared.switcherShown()
     }
+
+    #if DEBUG
+    // Fork: orange outline on the switcher. `contentView` is swapped per effect-view kind, so re-check on every show.
+    private func markAsDevBuild() {
+        guard let layer = contentView?.layer, !(layer.sublayers ?? []).contains(where: { $0.name == "devBorder" }) else { return }
+        let border = CALayer()
+        border.name = "devBorder"
+        border.frame = layer.bounds
+        border.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
+        border.borderColor = NSColor.systemOrange.cgColor
+        border.borderWidth = 3
+        border.cornerRadius = min(Appearance.windowCornerRadius, layer.bounds.height / 2)
+        layer.addSublayer(border)
+    }
+    #endif
 
     static func maxThumbnailsWidth(_ screen: NSScreen = NSScreen.preferred) -> CGFloat {
         if Preferences.effectiveAppearanceStyle(SwitcherSession.activeShortcutIndex) == .titles,
@@ -185,3 +206,31 @@ extension TilesPanel: NSWindowDelegate {
         CFRunLoopAddObserver(CFRunLoopGetMain(), refreshObserver, .commonModes)
     }
 }
+
+#if DEBUG
+/// Fork: logs `DEVLATENCY` lines measuring a summon from the physical key press to the panel being committed.
+/// Carbon `EventTime` and `systemUptime` share the same clock (seconds since boot).
+enum DevLatency {
+    private static var pressAt: Double?
+    private static var handlerAt: Double?
+
+    static func hotKeyPressed(_ eventTime: Double) {
+        guard SwitcherSession.current == nil else { return }
+        pressAt = eventTime
+        handlerAt = ProcessInfo.processInfo.systemUptime
+    }
+
+    static func panelShown() {
+        guard let pressAt, let handlerAt else { return }
+        let shownAt = ProcessInfo.processInfo.systemUptime
+        self.pressAt = nil
+        // The CoreAnimation commit for this show happens when the current runloop turn ends.
+        DispatchQueue.main.async {
+            let committedAt = ProcessInfo.processInfo.systemUptime
+            Logger.info { String(format: "DEVLATENCY press→handler %.1fms press→show %.1fms press→committed %.1fms (displayDelay %dms, windows %d)",
+                (handlerAt - pressAt) * 1000, (shownAt - pressAt) * 1000, (committedAt - pressAt) * 1000,
+                Preferences.windowDisplayDelayInMs, Windows.list.count) }
+        }
+    }
+}
+#endif

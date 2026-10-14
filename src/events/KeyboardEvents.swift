@@ -248,6 +248,9 @@ class KeyboardEvents {
                 var id = EventHotKeyID()
                 GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil, MemoryLayout<EventHotKeyID>.size, nil, &id)
                 let globalId = Int(id.id)
+                #if DEBUG
+                DevLatency.hotKeyPressed(GetEventTime(event))
+                #endif
                 handleKeyboardEvent(globalId, .down, nil, nil, false, nil,
                                     KeyboardEvents.claimRecordedRelease(globalId))
                 return noErr

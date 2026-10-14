@@ -217,8 +217,20 @@ class Menubar {
         statusItem.button!.image = image
         statusItem.isVisible = true
         statusItem.button!.imageScaling = .scaleProportionallyUpOrDown
+        #if DEBUG
+        markAsDevBuild()
+        #endif
         updateBadgeDotOverlay()
     }
+
+    #if DEBUG
+    // Fork: set alongside the image (see the layout-recursion note in `applyMenubarIconPreferences`).
+    static private func markAsDevBuild() {
+        statusItem.button!.imagePosition = .imageLeading
+        statusItem.button!.attributedTitle = NSAttributedString(string: "DEV", attributes: [
+            .foregroundColor: NSColor.systemOrange, .font: NSFont.boldSystemFont(ofSize: 11)])
+    }
+    #endif
 
     // CALayer rather than NSView subview: adding an NSView to NSStatusBarButton triggers
     // NSStatusBarContentView layout cascades that race with FBSScene updates at launch,

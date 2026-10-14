@@ -527,9 +527,7 @@ class App: AppCenterApplication {
             updaterDelegate: App.sparkleDelegate!,
             userDriverDelegate: nil)
         #if DEBUG
-        if !Preferences.qaPristine {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 30) { App.updaterController?.startUpdater() }
-        }
+        // Fork: never start Sparkle in dev builds; the upstream appcast would replace this fork with upstream AltTab.
         #else
         DispatchQueue.main.asyncAfter(deadline: .now() + 30) { App.updaterController?.startUpdater() }
         #endif
