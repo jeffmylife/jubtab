@@ -24,6 +24,8 @@ class LicenseManager {
         )
     }()
 
+    /// Fork: this build is unlocked; no trial, no license server, no upgrade prompts.
+    static let forkUnlocked = true
     static let trialDuration = 14
     private static let revalidationInterval: TimeInterval = 30 * 24 * 60 * 60 // 30 days
     static let keychainKeyAccount = "licenseKey"
@@ -80,7 +82,7 @@ class LicenseManager {
         #if DEBUG
         if hasMockedLicense { return mockedVariant.map(Self.lifetimeVariants.contains) ?? false }
         #endif
-        return true // Fork: unlocked build
+        if Self.forkUnlocked { return true }
         guard let variant = keychain.value(account: Self.keychainVariantAccount) else { return false }
         return Self.lifetimeVariants.contains(variant)
     }
@@ -224,8 +226,7 @@ class LicenseManager {
         #if DEBUG
         if hasMockedLicense { return state }
         #endif
-        // Fork: this build is unlocked; no trial, no license server, no upgrade prompts.
-        return .pro
+        if Self.forkUnlocked { return .pro }
         if keychain.value(account: Self.keychainKeyAccount) != nil {
             let lastValidationResult = defaults.bool(forKey: "lastValidationResult")
             guard lastValidationResult else { return .trialExpired }
