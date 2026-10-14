@@ -20,6 +20,11 @@ final class QAMenu: NSPanel {
         UserDefaults.standard.bool(forKey: openSettingsOnLaunchKey)
     }
 
+    /// Not shown in a lifecycle session, nor with `--qa-no-menu`: automated runs drive the real desktop with
+    /// synthetic clicks, and this panel floats over every app on every Space, where the clicks can land on it
+    /// instead.
+    static var suppressed: Bool { QaLifecycle.enabled || CommandLine.arguments.contains("--qa-no-menu") }
+
     static var graphEnabled: Bool {
         UserDefaults.standard.bool(forKey: graphEnabledKey)
     }
@@ -207,6 +212,7 @@ final class QAMenu: NSPanel {
                 Day1WelcomeLetterWindow.shared = nil
                 Day1WelcomeLetterWindow.show(forceFreshInstall: false)
             },
+            makeButton("1 Onboarding") { _ = OnboardingPopover.show(trialDaysToAnnounce: LicenseManager.trialDuration) },
             makeButton("4 Tour") { Day4TourPopover.show() },
             makeButton("12 HeadsUp") { Day12HeadsUpPopover.show() },
         ])

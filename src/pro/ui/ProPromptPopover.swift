@@ -7,8 +7,12 @@ import Cocoa
 /// share: a fixed-width column of rows inset by `padding`, ending in a button row.
 enum ProPromptPopover {
     static let padding = CGFloat(16)
-    private static let popovers = NSHashTable<NSPopover>.weakObjects()
-    static var isShowing: Bool { popovers.allObjects.contains { $0.isShown } }
+    private static let popovers = NSHashTable<AnchoredPopover>.weakObjects()
+    static var isShowing: Bool { popovers.allObjects.contains { $0.isShown || $0.isWaitingForAnchor } }
+
+    static func closeAll() {
+        popovers.allObjects.forEach { $0.close() }
+    }
 
     /// How a row sits in the column: hugging its own width at the leading edge, stretched to the
     /// full column (what a wrapping label needs), or hugging its own width at the trailing edge.
@@ -27,22 +31,19 @@ enum ProPromptPopover {
 
     /// Build a transient popover ready for the caller to fill with content. A fixed content
     /// size is optional — omit for views that are auto-sized via constraints.
-    static func make(contentSize: NSSize? = nil) -> NSPopover {
-        let popover = NSPopover()
+    static func make(contentSize: NSSize? = nil) -> AnchoredPopover {
+        let popover = AnchoredPopover()
         popovers.add(popover)
         popover.behavior = .transient
         if let contentSize { popover.contentSize = contentSize }
         return popover
     }
 
-    /// Anchor the popover below the menubar icon and make its content window key.
-    static func present(_ popover: NSPopover, content: NSView) {
-        let vc = NSViewController()
-        vc.view = content
-        popover.contentViewController = vc
-        App.shared.activate(ignoringOtherApps: true)
-        Menubar.showPopoverFromMenubar(popover)
-        popover.contentViewController?.view.window?.makeKey()
+    /// Anchor the popover below the menubar icon, or under the menu bar when the icon isn't there, and make its
+    /// content window key.
+    static func present(_ popover: AnchoredPopover, content: NSView) {
+        guard let item = Menubar.statusItem else { return }
+        popover.present(content, from: item)
     }
 
     static func makeContainer(width: CGFloat, _ rows: [Row]) -> NSView {
@@ -93,12 +94,12 @@ enum ProPromptPopover {
 
     /// The [Not now] [Get Pro] pair every popover but Day 4 ends with. Both dismiss the popover;
     /// `Get Pro` also opens checkout.
-    static func makeButtonRow(closing popover: NSPopover) -> NSStackView {
+    static func makeButtonRow(closing popover: NSPopover, origin: CheckoutOrigin) -> NSStackView {
         let notNow = NotAdvisedButton(NSLocalizedString("Not now", comment: ""))
-        notNow.onAction = { _ in popover.performClose(nil) }
-        let getPro = ProPromptButtons.makeGetPro(large: false) {
-            popover.performClose(nil)
-            ProTransitionManager.openCheckout()
+        notNow.onAction = { [weak popover] _ in popover?.close() }
+        let getPro = ProPromptButtons.makeGetPro(large: false) { [weak popover] in
+            popover?.close()
+            ProTransitionManager.openCheckout(from: origin)
         }
         let row = NSStackView(views: [notNow, getPro])
         row.translatesAutoresizingMaskIntoConstraints = false

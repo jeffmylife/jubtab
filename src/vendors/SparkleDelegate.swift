@@ -24,18 +24,22 @@ class SparkleDelegate: NSObject, SPUUpdaterDelegate {
     var onNextCheckCompletion: ((UpdateCheckResult) -> Void)?
 
     func feedURLString(for updater: SPUUpdater) -> String? {
-        return Endpoints.appcastUrl
+        return nil // Fork: never offer upstream AltTab builds as an update
     }
 
+    /// `day` is `LicenseManager.trialDay`, the same count the "Get Pro" links carry, so trial cohorts can be sized
+    /// against purchases. A count rather than the start date: it changes every day, so unlike a date it doesn't
+    /// single out one install across checks. Omitted when there is no trial start.
     func feedParameters(for updater: SPUUpdater, sendingSystemProfile sendingProfile: Bool) -> [[String: String]] {
         let v = ProcessInfo.processInfo.operatingSystemVersion
+        let day = LicenseManager.shared.trialDay.map { [["key": "day", "value": String($0)]] } ?? []
         return [
             ["key": "version", "value": App.version],
             ["key": "macos", "value": "\(v.majorVersion).\(v.minorVersion).\(v.patchVersion)"],
             ["key": "arch", "value": Sysctl.run("hw.machine")],
             ["key": "lang", "value": Locale.preferredLanguages.first ?? "unknown"],
             ["key": "tier", "value": LicenseManager.shared.state.appcastTier],
-        ]
+        ] + day
     }
 
     func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {

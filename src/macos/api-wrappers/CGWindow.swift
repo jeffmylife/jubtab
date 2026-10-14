@@ -4,7 +4,7 @@ typealias CGWindow = [CFString: Any]
 
 extension CGWindow {
     static func windows(_ option: CGWindowListOption) -> [CGWindow] {
-        return CGWindowListCopyWindowInfo([.excludeDesktopElements, option], kCGNullWindowID) as! [CGWindow]
+        return CGWindowListCopyWindowInfo([.excludeDesktopElements, option], kCGNullWindowID) as? [CGWindow] ?? []
     }
 
     func id() -> CGWindowID? {
@@ -13,6 +13,10 @@ extension CGWindow {
 
     func layer() -> Int? {
         return value(kCGWindowLayer, Int.self)
+    }
+
+    func alpha() -> Double? {
+        return value(kCGWindowAlpha, Double.self)
     }
 
     func bounds() -> NSRect? {

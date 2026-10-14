@@ -10,8 +10,17 @@ class TilesPanel: NSPanel {
     static var maxPossibleThumbnailSize = NSSize.zero
     static var maxPossibleAppIconSize = NSSize.zero
     static var shared: TilesPanel!
+    private static let windowIdLock = NSLock()
+    private static var windowId: CGWindowID = 0
+    // NSWindow.windowNumber is main-thread-only; AX workers read this synchronized snapshot instead.
+    static var windowIdSnapshot: CGWindowID {
+        windowIdLock.lock()
+        defer { windowIdLock.unlock() }
+        return windowId
+    }
     private var frozenTopCenter: NSPoint?
     private var highWaterHeight: CGFloat = 0
+    private var showGeneration: UInt = 0
 
     convenience init() {
         self.init(contentRect: .zero, styleMask: .nonactivatingPanel, backing: .buffered, defer: false)
@@ -26,6 +35,10 @@ class TilesPanel: NSPanel {
         setAccessibilityLabel(App.name)
         updateAppearance()
         Self.shared = self
+        let wid = CGWindowID(windowNumber)
+        Self.windowIdLock.lock()
+        Self.windowId = wid
+        Self.windowIdLock.unlock()
     }
 
     func updateAppearance() {
@@ -70,13 +83,16 @@ class TilesPanel: NSPanel {
     }
 
     override func orderOut(_ sender: Any?) {
-        MainThreadStall.step()
-        SearchDiscoveryHint.shared.cancel()
-        TilesView.clearNeedsLayout()
+        beginOrderOut()
         if Preferences.fadeOutAnimation {
+            let generation = showGeneration
             NSAnimationContext.runAnimationGroup(
                 { _ in animator().alphaValue = 0 },
-                completionHandler: { super.orderOut(sender) }
+                completionHandler: {
+                    // A re-summon during the fade must not have its fresh panel ordered out by the stale fade.
+                    guard self.showGeneration == generation else { return }
+                    super.orderOut(sender)
+                }
             )
         } else {
             // Not a hedge against a slow `orderOut`: both land in the same CoreAnimation transaction, which
@@ -88,8 +104,38 @@ class TilesPanel: NSPanel {
         }
     }
 
+    /// Hides the panel now, but orders it out only once the returned release runs, or after `keyHoldLimit`.
+    /// Ordering it out gives the keyboard back to the app being left, and CapCut answers that by making itself
+    /// front again, over the front switch the focus requests a moment later (#6097). So the focus releases the
+    /// panel once it has fronted the target; the limit covers a focus that never does (refused, superseded,
+    /// queued behind older ones). The fade-out already keeps the panel ordered in longer than that.
+    func orderOutOnceFronted() -> () -> Void {
+        guard !Preferences.fadeOutAnimation else {
+            App.hideTilesPanelWithoutChangingKeyWindow()
+            return {}
+        }
+        beginOrderOut()
+        alphaValue = 0
+        let generation = showGeneration
+        let release = { [weak self] in
+            guard let self, self.showGeneration == generation, self.isVisible else { return }
+            App.hideTilesPanelWithoutChangingKeyWindow()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.keyHoldLimit, execute: release)
+        return release
+    }
+
+    private static let keyHoldLimit = DispatchTimeInterval.milliseconds(100)
+
+    private func beginOrderOut() {
+        MainThreadStall.step()
+        SearchDiscoveryHint.shared.cancel()
+        TilesView.clearNeedsLayout()
+    }
+
     func show() {
         MainThreadStall.step()
+        showGeneration &+= 1
         updateAppearance()
         // The panel may have been hidden (alpha=0) by `App.showUiOrCycleSelection` on a
         // cross-shortcut summon to mask the rebuild. Reveal it atomically now that contents

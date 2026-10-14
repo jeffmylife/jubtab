@@ -30,6 +30,10 @@ class Applications {
     /// the wid being re-created, on window removal, on app quit, and whenever the WindowServer stops listing
     /// the wid at all.
     static var failedAcquisitions = [CGWindowID: (pid: pid_t, situation: UInt64, attempts: Int)]()
+    /// Re-asks made by `retryAcquisition`, per wid. Dropped on success, at the limit, and whenever the
+    /// WindowServer stops listing the wid.
+    private static var acquisitionRetries = [CGWindowID: Int]()
+    private static let acquisitionRetryLimit = 3
     private struct PendingAxCreation {
         let pid: pid_t
         let element: AXUIElement
@@ -109,24 +113,16 @@ class Applications {
         }
     }
 
-    /// Discard "zombie" windows so they can't accumulate. Window removal is normally driven by the per-window
-    /// destroy event (804), which is reliable for windows we're subscribed to. But our discovery is async — a
-    /// window seen in the SLS snapshot can die in the gap before we subscribe to it, so its 804 fires before
-    /// we're listening and never removes it; it lingers flagged phantom (empty spaceIds) and would otherwise
-    /// pile up forever, holding a Window + a stale subscription each. So on each refresh, reconcile ONLY the
-    /// windows currently flagged phantom (the accumulation candidates — usually none) against authoritative
-    /// OS existence, and drop the ones the OS confirms gone. Alive-but-phantom windows (a real window briefly
-    /// between Spaces, or Slack's empty-spaceIds case #5791) still exist, so they're kept and stay correctly
-    /// hidden. Bails on query failure — never discard on incomplete data. (yabai sidesteps this race by
-    /// observing a window synchronously at create; our discovery is async, so this is the cheap, scoped
-    /// backstop — it checks the suspicious few, not the whole list.)
+    /// A window can die before discovery subscribes to its destroy event (804), leaving a phantom behind.
+    /// Only queried windows that are still phantom when the answer lands may be discarded. A query failure
+    /// cannot establish absence; live windows with empty Space membership (e.g. Slack, #5791) must be kept.
     static func discardDeadPhantomWindows() {
         let phantomWids = Windows.list.compactMap { $0.isPhantom ? $0.cgWindowId : nil }
         guard !phantomWids.isEmpty else { return }
+        let queriedWids = Set(phantomWids)
         CGSCallScheduler.existingWindowIds(among: phantomWids) { alive in
-            // Never discard on incomplete data.
             guard let alive else { return }
-            let dead = Windows.list.filter { $0.isPhantom && ($0.cgWindowId.map { !alive.contains($0) } ?? false) }
+            let dead = Windows.list.filter { $0.isPhantom && ($0.cgWindowId.map { queriedWids.contains($0) && !alive.contains($0) } ?? false) }
             guard !dead.isEmpty else { return }
             Logger.debug { "remove phantomSweep count=\(dead.count) \(dead.map { $0.debugId })" }
             Windows.removeWindows(dead, true)
@@ -259,10 +255,10 @@ class Applications {
                             Windows.byWindowId[raw.wid]?.admissionEvidence == .attention else { continue }
                     WindowServerEvents.subscribe(raw.wid)
                     guard let app = findOrCreate(raw.pid) else { continue }
-                    // tracked windows with a live element stay fresh via the WS event stream
+                    // tracked windows AX has described stay fresh via the WS event stream
                     // (geometry/min/fullscreen) + reviewExistingWindows (title/tabs); discovery only ACQUIRES
-                    // genuinely-new windows.
-                    guard Windows.byWindowId[raw.wid]?.axUiElement == nil else { continue }
+                    // genuinely-new windows, and ones only attention vouched for (`applyDiscoveredChain`).
+                    guard Windows.byWindowId[raw.wid]?.semanticSurface == nil else { continue }
                     guard !widsConfirmedClosed.contains(raw.wid) else { continue }
                     guard !screenIsDark else { continue }
                     // A surface that has failed to acquire three times at this app's current window set is
@@ -279,6 +275,7 @@ class Applications {
                 // Bound the failure table by the same enumeration that gates everything else here: a wid the
                 // WindowServer no longer lists can never be swept again, so its record is dead weight.
                 failedAcquisitions = failedAcquisitions.filter { allWids.contains($0.key) }
+                acquisitionRetries = acquisitionRetries.filter { allWids.contains($0.key) }
                 // regular apps with no windows show as an icon placeholder. It's dropped when a real window
                 // arrives (Window.init) or when an existing window un-phantoms (Window.updateSpaces), so a
                 // window that recovers its Space after a fullscreen transition clears the stale placeholder
@@ -366,22 +363,20 @@ class Applications {
     /// made a cold-start adoption flood arrive as visible "on-screen" windows that the tab matcher was then
     /// forbidden to claim — a switcher full of ghost tiles that only the NEXT show's re-query healed (rec15).
     /// Forced Space-less, it arrives hidden like any unclaimed background tab, and the group converges below.
-    static func addDiscoveredWindow(_ element: AXUIElement, _ raw: WsRawWindow, _ app: Application,
+    static func addDiscoveredWindow(_ element: AXUIElement, _ discoveredRaw: WsRawWindow, _ app: Application,
                                     adoptedAsInactiveTab: Bool = false) {
-        let wid = raw.wid
+        let wid = discoveredRaw.wid
         AXCallScheduler.shared.schedule(key: "wid-\(wid)-generic", context: app.debugId, pid: app.pid, scan: true) { [weak app] in
             guard let app else { return }
             guard wid != 0 else { return }
-            // TilesPanel.shared is nil until the switcher is first built; discovery can now run before that
-            // (a window created right at launch), so don't force-unwrap it. If the panel exists and this is
-            // its own window, skip it; otherwise it can't be ours, so proceed.
-            if let panel = TilesPanel.shared, wid == panel.windowNumber { return }
+            guard wid != TilesPanel.windowIdSnapshot else { return }
             let isSelf = app.pid == AXUIElement.currentProcessPid
             // The WS minimized tag is distinct from the ordered-out bit, which is also cleared for closing,
             // app-hidden and other-Space windows.
             let keys = [kAXTitleAttribute, kAXSubroleAttribute, kAXRoleAttribute, kAXMainAttribute]
             let a = try element.attributes(keys, pid: app.pid)
             let semantic = SemanticSurface(title: a.title, subrole: a.subrole, role: a.role, isMain: a.isMain)
+            let raw = currentRaw(discoveredRaw)
             let tabObservation: TabGroupObservation = isSelf ? .unknown : element.tabGroupObservation(pid: app.pid)
             let isFullscreen = WsWindowState.isFullscreen(raw)
             // Both from the SAME WindowServer snapshot this discovery already holds. Minimized used to be an
@@ -429,6 +424,15 @@ class Applications {
                 if findOrCreate.1 { Windows.reseedZOrderDuringStartup() }
             }
         }
+    }
+
+    /// **The surface is judged as it is when accessibility describes it, not as it was when the sweep listed
+    /// it.** Chrome keeps its find bar alive while it is closed: ordered out, parentless, and absent from
+    /// accessibility, so the sweep keeps asking for it. Reopened, it is a child of its browser window and
+    /// accessibility answers for it (`AXWindow` titled "Find in page …"), and the row from the sweep still
+    /// read parentless, so it was admitted as a second Chrome window and put in front (#6096).
+    private static func currentRaw(_ raw: WsRawWindow) -> WsRawWindow {
+        WindowServerQuery.query([raw.wid]).first ?? raw
     }
 
     /// WindowServer-driven per-window state refresh (geometry + fullscreen), replacing the AX attribute read
@@ -634,9 +638,11 @@ class Applications {
     private static func finishAxElementEnd(wid: CGWindowID, token: UInt64) {
         guard let pending = pendingAxEnds[wid], pending.token == token, let ax = pending.ax,
               let surfacePresent = pending.surfacePresent else { return }
+        // Read at decision time: the AX destroy can lead the app-hide notification.
+        let appHidden = Windows.byWindowId[wid]?.application.isHidden ?? false
         let verdict = AxElementEndPolicy.decide(ax: ax, surfacePresent: surfacePresent,
             isTabbed: pending.isTabbed, groupShrank: pending.groupShrank, groupGone: pending.groupGone,
-            axQueryCoversWindow: pending.axQueryCoversWindow)
+            axQueryCoversWindow: pending.axQueryCoversWindow, appHidden: appHidden)
         commitAxElementEnd(wid: wid, pending: pending, verdict: verdict)
     }
 
@@ -652,7 +658,8 @@ class Applications {
         // The evidence behind the verdict, so a capture says WHICH fact condemned or kept the window
         Logger.debug { "axEnd #\(wid) verdict=\(verdict) ax=\(pending.ax.map { "\($0)" } ?? "pending") "
             + "surface=\(pending.surfacePresent.map { "\($0)" } ?? "pending") tabbed=\(pending.isTabbed) "
-            + "shrank=\(pending.groupShrank) gone=\(pending.groupGone)" }
+            + "shrank=\(pending.groupShrank) gone=\(pending.groupGone) "
+            + "hidden=\(Windows.byWindowId[wid]?.application.isHidden ?? false)" }
         pendingAxEnds[wid] = nil
         if let fresh = pending.freshElement { Windows.byWindowId[wid]?.rebindAxElement(fresh) }
         if verdict == .confirmedClosed { widsConfirmedClosed.insert(wid) }
@@ -702,9 +709,11 @@ class Applications {
                 // The route reaches the current Space plus the app's key/main window, so it does not cover
                 // an arbitrary other-Space window. It may condemn only when a completed membership
                 // observation puts the window inside that scope; a display value borrowed from a tab or
-                // guessed at initialization is not evidence that the query covered it.
+                // guessed at initialization is not evidence that the query covered it. Nor does a hidden
+                // app's list cover its windows (`AxElementEndPolicy`).
                 let axQueryCoversWindow = Windows.byWindowId[wid].map { window -> Bool in
-                    guard case let .known(ids) = window.spaceMembershipObservation else { return false }
+                    guard !window.application.isHidden,
+                          case let .known(ids) = window.spaceMembershipObservation else { return false }
                     return ids.isEmpty || ids.contains { Spaces.visibleSpaces.contains($0) }
                 } ?? false
                 if !axQueryCoversWindow {
@@ -859,14 +868,31 @@ class Applications {
         WindowServerEvents.subscribe(raw.wid)
         // A window kept on WindowServer evidence alone must NOT block its own re-acquisition: it is
         // tracked, so the old "already tracked, nothing to do" guard would leave it unverified and
-        // unshown for good. Proceed whenever there is no AX element yet.
-        guard Windows.byWindowId[raw.wid]?.axUiElement == nil,
+        // unshown for good. Proceed until AX has described it, not merely until it has an element: an
+        // element adopted from a notification (`applyObservedElement`) only had its role read, and skipping
+        // here then kept a surface admission rejects on its subrole, e.g. Little Arc's `AXSystemDialog` (#6092).
+        guard Windows.byWindowId[raw.wid]?.semanticSurface == nil,
               let app = findOrCreate(raw.pid) else { return }
         AXCallScheduler.shared.schedule(key: "wid-\(raw.wid)-acquire", context: app.debugId, pid: raw.pid, scan: true) {
             guard let element = WindowElementAcquisition.element(for: raw.wid, pid: raw.pid,
-                route: .currentSpaceViaApplicationWindows) else { return }
+                route: .currentSpaceViaApplicationWindows) else { return DispatchQueue.main.async { retryAcquisition(raw.wid) } }
+            DispatchQueue.main.async { acquisitionRetries[raw.wid] = nil }
             addDiscoveredWindow(element, raw, app)
         }
+    }
+
+    /// An app describes a window it created a moment ago only once it has set it up. A window opened 7ms
+    /// after its app launched read as unavailable 300ms later, and with no later event naming it, it stayed
+    /// out of the switcher until the next summon. So the event-driven acquisition is asked again, a bounded
+    /// number of times, for as long as the WindowServer lists the wid (`applyDiscoveredChain` stops there).
+    private static func retryAcquisition(_ wid: CGWindowID) {
+        let attempt = (acquisitionRetries[wid] ?? 0) + 1
+        guard attempt <= acquisitionRetryLimit else {
+            acquisitionRetries[wid] = nil
+            return
+        }
+        acquisitionRetries[wid] = attempt
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25 * Double(attempt)) { discoverWindow(wid) }
     }
 
     // ≤1 inactive-tab brute-force scan per app per 3s, a frequency cap on top of the per-situation budget below.
@@ -1031,14 +1057,14 @@ class Applications {
         // re-read too, and the rest ride on the push. Narrow on purpose — the gaps a push leaves are an
         // observer rebuild and an element adopted after the fact, both rare, both corrected within a few
         // summons, against a read that would otherwise cost one round trip per window per summon.
-        guard reconcileTabs || !AxObserverRegistry.deliversTitles(app.pid) else { return }
+        // A window whose AX title is empty gets no push to ride on, so it is read every time.
+        guard reconcileTabs || !AxTitleNotificationPolicy.pushCoversTitle(
+            appDeliversTitles: AxObserverRegistry.deliversTitles(app.pid),
+            axTitleIsEmpty: Windows.byWindowId[wid]?.axTitleIsEmpty ?? false) else { return }
         AXCallScheduler.shared.schedule(key: "wid-\(wid)-generic", context: app.debugId, pid: app.pid, scan: true) { [weak app] in
             guard let app else { return }
             guard wid != 0 else { return }
-            // TilesPanel.shared is nil until the switcher is first built; discovery can now run before that
-            // (a window created right at launch), so don't force-unwrap it. If the panel exists and this is
-            // its own window, skip it; otherwise it can't be ours, so proceed.
-            if let panel = TilesPanel.shared, wid == panel.windowNumber { return }
+            guard wid != TilesPanel.windowIdSnapshot else { return }
             let isSelf = app.pid == AXUIElement.currentProcessPid
             // Skip the tab-group read when the caller says not to reconcile tabs (an order-out): an
             // ordered-out window reports its AXTabGroup inconsistently mid-transition, and order-out never
@@ -1062,6 +1088,7 @@ class Applications {
                 return
             }
             let tabObservation: TabGroupObservation = readTabs ? axWindow.tabGroupObservation(pid: app.pid) : .unknown
+            let title = Window.axOrLiveWindowServerTitle(a.title, wid)
             DispatchQueue.main.async {
                 // This read HAPPENED, and "no tab group" is as much of an answer as a group.
                 if readTabs, tabObservation != .unknown {
@@ -1076,11 +1103,12 @@ class Applications {
                 guard let window = Windows.byWindowId[wid] else { return }
                 // raw-fact ingestion stays here (bestEffortTitle needs the CG-title fallback IPC); the
                 // tab reconcile + re-render decision is the reducer's `.titleAndTabsRead` branch
-                let newTitle = window.bestEffortTitle(a.title)
+                let newTitle = window.bestEffortTitle(title)
                 let semantic = SemanticSurface(title: newTitle, subrole: a.subrole, role: a.role, isMain: a.isMain)
                 guard Windows.reevaluateAdmission(window, semantic) else { return }
                 let changed = window.title != newTitle
                 if changed { window.title = newTitle; window.lastSearchQuery = nil }
+                window.axTitleIsEmpty = a.title?.isEmpty ?? true
                 window.isMainWindow = a.isMain ?? false
                 TrackedWindowStateBridge.dispatch(.titleAndTabsRead(wid: wid, tabGroup: tabObservation,
                     reconcileTabs: reconcileTabs, changedSoFar: changed))
