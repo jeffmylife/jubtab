@@ -537,6 +537,7 @@ class SettingsWindow: NSWindow {
         upgradeButton.action = #selector(upgradeButtonClicked)
         upgradeButton.translatesAutoresizingMaskIntoConstraints = false
         parent.addSubview(upgradeButton)
+        upgradeButton.isHidden = true // Fork: always unlocked, nothing to upgrade
         // Align with the sidebar source-list highlight: the scroll view sits flush against the
         // sidebar edges and `.sourceList` adds its own ~10pt internal inset, so the highlight
         // pill ends up at `sidebarHorizontalPadding` from each edge — same as the search field.

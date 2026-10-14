@@ -6,3 +6,6 @@ CODE_SIGN_IDENTITY = Developer ID Application: Jeffrey Lemoine (RAWCZGHN26)
 DEVELOPMENT_TEAM = RAWCZGHN26
 TEAM_ID = RAWCZGHN26
 OTHER_CODE_SIGN_FLAGS = --timestamp=none --deep --options runtime
+// About > Website opens the fork; the license/feedback API points nowhere.
+DOMAIN = github.com/jeffmylife/jubtab
+API_DOMAIN = api.invalid

@@ -22,6 +22,7 @@ class AboutTab {
         appInfo.spacing = GridView.interPadding
         appInfo.alignment = .centerY
         let supportProject = makeSupportProjectButton()
+        supportProject.isHidden = true // Fork: no upstream donations
         let rows = [[appInfo], [supportProject]]
         let grid = GridView(rows, 0)
         if centerHero {
