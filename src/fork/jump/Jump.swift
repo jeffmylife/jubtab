@@ -1,10 +1,8 @@
 import Cocoa
 
-/// Fork: the Jump switcher, in two modes.
-/// - Hold ⌥ and press Tab: local servers, cmux workspaces and Zen tabs. Tab / ⇧Tab (or ↑↓, or the mouse) move,
-///   releasing ⌥ (or Return, or a click) jumps, ` cancels.
-/// - Search: tap ⌥Tab (press and let go at once) or double-tap ⌥. Type to search those plus every window;
-///   ↑↓ / Tab move, Return jumps, Esc or a click outside closes.
+/// Fork: the Jump switcher. ⌥Tab or a double-tap of ⌥ opens a search over local servers, cmux workspaces, Zen tabs
+/// and every window. Type to filter; ↑↓ / Tab (even with ⌥ still held) move, Return or a click jumps, Esc or a
+/// click outside closes. Releasing ⌥ never jumps: nothing opens unless it was picked.
 /// Keys come through a dedicated event tap: JubTab's Carbon hotkey handler consumes every hotkey on the dispatcher
 /// target, so a hotkey would never reach us. The panel never becomes key, so in search mode the tap also does the
 /// typing.
@@ -19,15 +17,10 @@ enum Jump {
     private static var lastLoad = Date.distantPast
     private static let loadQueue = DispatchQueue(label: "jubtab.jump.load")
     private static var isRefreshing = false
-    /// Hold mode: when the panel appeared and whether Tab moved since, to tell a tap of ⌥Tab from a hold.
-    private static var shownAt = Date.distantPast
-    private static var movedSinceShown = false
     /// Double-tap ⌥ detection: when the bare ⌥ went down, and when the last quick bare tap ended.
     private static var optionDownAt: Date?
     private static var lastOptionTap: Date?
 
-    /// A ⌥Tab released sooner than this, without moving, opens search instead of jumping.
-    private static let tapThreshold: TimeInterval = 0.3
     /// Each ⌥ press of a double tap is at most `optionTapMax` long, and the second starts within `doubleTapGap`.
     private static let optionTapMax: TimeInterval = 0.3
     private static let doubleTapGap: TimeInterval = 0.4
@@ -74,12 +67,7 @@ enum Jump {
         let flags = event.flags
         let chordHeld = flags.contains(.maskAlternate) && !flags.contains(.maskCommand) && !flags.contains(.maskControl)
         if type == .flagsChanged {
-            if isShowing && !chordHeld {
-                let wasTap = !movedSinceShown && Date().timeIntervalSince(shownAt) < tapThreshold
-                DispatchQueue.main.async { wasTap ? enterSearch() : commit() }
-            } else if !isShowing {
-                trackOptionDoubleTap(flags)
-            }
+            if !isShowing { trackOptionDoubleTap(flags) }
             return event
         }
         let key = event.getIntegerValueField(.keyboardEventKeycode)
@@ -91,20 +79,8 @@ enum Jump {
         if type == .keyDown && key == Key.tab && flags.contains(.maskCommand) {
             DispatchQueue.main.async { JumpFlyout.startWatching() }
         }
-        if !isShowing {
-            guard type == .keyDown, key == Key.tab, chordHeld, SwitcherSession.current == nil else { return event }
-            DispatchQueue.main.async { show() }
-            return nil
-        }
-        guard type == .keyDown else { return [Key.tab, Key.backtick, Key.returnKey, Key.up, Key.down].contains(key) ? nil : event }
-        switch key {
-            case Key.tab: DispatchQueue.main.async { movedSinceShown = true; model.move(flags.contains(.maskShift) ? -1 : 1) }
-            case Key.down: DispatchQueue.main.async { movedSinceShown = true; model.move(1) }
-            case Key.up: DispatchQueue.main.async { movedSinceShown = true; model.move(-1) }
-            case Key.returnKey: DispatchQueue.main.async { commit() }
-            case Key.backtick: DispatchQueue.main.async { hide() }
-            default: return event
-        }
+        guard type == .keyDown, key == Key.tab, chordHeld, SwitcherSession.current == nil else { return event }
+        DispatchQueue.main.async { enterSearch() }
         return nil
     }
 
@@ -168,7 +144,10 @@ enum Jump {
                 DispatchQueue.main.async { typeText(pasted) }
             default:
                 guard !command && !control else { return nil }
-                let typed = (NSEvent(cgEvent: event)?.characters ?? "").filter { isPrintable($0) }
+                // ⌥ may still be held from ⌥Tab; type the plain letter rather than ⌥'s special character.
+                let nsEvent = NSEvent(cgEvent: event)
+                let raw = flags.contains(.maskAlternate) ? nsEvent?.charactersIgnoringModifiers : nsEvent?.characters
+                let typed = (raw ?? "").filter { isPrintable($0) }
                 guard !typed.isEmpty else { return nil }
                 DispatchQueue.main.async { typeText(typed) }
         }
@@ -197,27 +176,15 @@ enum Jump {
         display(resetSelection: true)
     }
 
-    private static func show() {
-        guard !isShowing else { return }
-        isShowing = true
-        shownAt = Date()
-        movedSinceShown = false
-        model.selected = 0
-        model.isLoading = items.isEmpty
-        display(resetSelection: true)
-        panel?.present()
-        refresh()
-    }
-
-    /// From nothing (double-tap ⌥) or from a hold-mode panel that was only tapped.
     private static func enterSearch() {
-        let wasShowing = isShowing
+        guard !isShowing else { return }
         isShowing = true
         isSearching = true
         model.isSearching = true
         model.query = ""
+        model.isLoading = items.isEmpty
         display(resetSelection: true)
-        if wasShowing { panel?.refit() } else { panel?.present() }
+        panel?.present()
         refresh()
     }
 

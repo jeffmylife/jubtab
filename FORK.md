@@ -38,9 +38,9 @@ All in `src/fork/jump/`:
 
 - `JumpSources.swift`: Zen tabs (Zen's session file, switched through Accessibility), local servers (`lsof` plus an HTTP probe for pages), and cmux workspaces (the cmux CLI).
 - `JumpItems.swift`: merges the sources and links servers to their workspace and Zen tab.
-- `Jump.swift` and `JumpPanel.swift`: the ⌥Tab switcher, with its own event tap. JubTab's Carbon hotkey handler consumes every hotkey, so a Carbon hotkey would never reach it.
+- `Jump.swift` and `JumpPanel.swift`: the ⌥Tab search panel, with its own event tap. JubTab's Carbon hotkey handler consumes every hotkey, so a Carbon hotkey would never reach it.
 - `JumpSearch.swift`: search ranking. It reuses upstream's `SearchTestable.tierMatch` on titles and keywords, then boosts things you pick often (`jumpPicks` in the app's defaults). `JumpWindows.swift` adds JubTab's own windows.
-- Search mode is entered by tapping ⌥Tab (a release within 0.3s, without moving) or double-tapping a bare ⌥. While it's open, the event tap swallows the keyboard and types into the drawn field. ⌘A/⌘C/⌘X/⌘V edit the query like a text field; other ⌘/⌃ shortcuts are ignored. Esc, a click outside, or ⌘Tab/⌘`/⌘Space close it (the last three go through).
+- ⌥Tab (tap or hold) or a double-tap of a bare ⌥ opens it; releasing ⌥ never jumps. While it's open, the event tap swallows the keyboard and types into the drawn field. ⌘A/⌘C/⌘X/⌘V edit the query like a text field; other ⌘/⌃ shortcuts are ignored. Esc, a click outside, or ⌘Tab/⌘`/⌘Space close it (the last three go through).
 - `JumpFlyout.swift`: the hover side menu in the ⌘Tab switcher.
 - Diagnostics are logged to `~/Library/Logs/JubTab-jump.log`.
 

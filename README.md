@@ -5,7 +5,7 @@
 # JubTab
 
 **My opinionated window switcher for macOS.**<br/>
-⌘Tab through windows. ⌥Tab through everything else I work in: local dev servers, cmux workspaces and Zen tabs.
+⌘Tab through windows. ⌥Tab to search everything I work in: windows, local dev servers, cmux workspaces and Zen tabs.
 
 </div>
 
@@ -13,13 +13,11 @@ JubTab is my personal fork of [AltTab](https://github.com/lwouis/alt-tab-macos) 
 
 ## What's different
 
-- **⌥Tab — the Jump switcher.** Hold ⌥ and press Tab to see:
+- **⌥Tab — search everything.** Press ⌥Tab (tap or hold) or double-tap ⌥, then type. One list ranks your windows, Zen tabs, cmux workspaces and local servers by how well they match, matching titles plus URLs, folders and port numbers (`4173` finds that server). Before you type, it lists:
   - **Servers** — every local port that serves a web page, named by the page's title and linked to the cmux workspace it runs in. Picking one switches to the Zen tab already showing it, or opens one.
-  - **cmux** — workspaces, most recent first, with their folder and ports.
-  - **Zen** — open tabs, most recent first.
+  - **Windows**, **cmux** workspaces and **Zen** tabs, most recent first.
 
-  Tab / ⇧Tab or the arrows move, the mouse hovers and clicks, releasing ⌥ jumps, <kbd>`</kbd> cancels.
-- **Search everything.** Tap ⌥Tab (press and let go) or double-tap ⌥, then type. One list ranks your windows, Zen tabs, cmux workspaces and servers by how well they match, matching titles plus URLs, folders and port numbers (`4173` finds that server). Things you pick often rise to the top. ↑↓ move, Return jumps, Esc closes.
+  ↑↓ or Tab move (even with ⌥ still held), Return or a click jumps, Esc closes. Letting go of ⌥ never jumps, so nothing opens unless you pick it. Things you pick often rise to the top.
 - **Side menus in ⌘Tab** *(experimental)*. Rest the pointer on the cmux or Zen tile and a menu of its workspaces, servers and tabs opens beside it. Click a row, or release ⌘ over it.
 - **Everything on.** No trial, no license checks, no upgrade prompts.
 - **I choose when to update.** The built-in updater is off; I merge upstream releases myself (see below).
