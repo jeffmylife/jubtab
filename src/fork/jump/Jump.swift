@@ -22,6 +22,7 @@ enum Jump {
             commit()
         }
         installTap()
+        JumpFlyout.start()
         refresh()
         JumpSupport.log("jump: started (tap \(tap == nil ? "FAILED" : "ok"))")
     }
@@ -50,6 +51,10 @@ enum Jump {
             return event
         }
         let key = event.getIntegerValueField(.keyboardEventKeycode)
+        // The ⌘Tab switcher may come up without its panel becoming key; start the hover side menu's watch either way.
+        if type == .keyDown && key == Key.tab && flags.contains(.maskCommand) {
+            DispatchQueue.main.async { JumpFlyout.startWatching() }
+        }
         if !isShowing {
             guard type == .keyDown, key == Key.tab, chordHeld, SwitcherSession.current == nil else { return event }
             DispatchQueue.main.async { show() }
@@ -92,7 +97,10 @@ enum Jump {
 
     /// Sources take ~1s (lsof + HTTP probes + the cmux CLI), so the panel shows the last result at once and
     /// updates in place when the fresh one lands.
-    private static func refresh() {
+    /// The last loaded destinations, shared with the hover flyout.
+    static var items: [JumpItem] { model.items }
+
+    static func refresh() {
         guard !isRefreshing, Date().timeIntervalSince(lastLoad) > 2 else { return }
         isRefreshing = true
         loadQueue.async {

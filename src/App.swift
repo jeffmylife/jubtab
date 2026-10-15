@@ -128,6 +128,7 @@ class App: AppCenterApplication {
 
     static func focusTarget() {
         guard SwitcherSession.isActive else { return } // already hidden
+        if JumpFlyout.commitIfHovered() { return hideUi() } // Fork: a row of the hover side menu wins
         let selectedWindow = Windows.selectedWindow()
         #if DEBUG
         CliServer.recordSelectionCommit(selectedWindow?.cgWindowId)

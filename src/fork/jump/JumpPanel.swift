@@ -9,6 +9,11 @@ final class JumpModel: ObservableObject {
     /// Bumped by keyboard moves only: the list scrolls to keep the selection visible, but must not scroll under
     /// a hovering mouse.
     @Published var keyboardMoves = 0
+    /// Panel width; the hover flyout is narrower than the ⌥Tab panel.
+    let width: CGFloat
+
+    init(width: CGFloat = 640) { self.width = width }
+
     /// Row frames in the panel's coordinates, reported by the view, for mouse hit-testing.
     var rowFrames = [Int: CGRect]()
 
@@ -105,7 +110,7 @@ struct JumpView: View {
                 }
             }
         }
-        .frame(width: 640)
+        .frame(width: model.width)
         .frame(maxHeight: 560)
         .coordinateSpace(name: "jump")
         .onPreferenceChange(JumpRowFrames.self) { model.rowFrames = $0 }
@@ -135,7 +140,7 @@ struct JumpView: View {
 /// Fork: a non-activating floating panel, so showing it never steals focus from the app you are leaving.
 final class JumpPanel: NSPanel {
     init(_ model: JumpModel, onPick: @escaping (Int) -> Void) {
-        super.init(contentRect: NSRect(x: 0, y: 0, width: 640, height: 200), styleMask: [.borderless, .nonactivatingPanel],
+        super.init(contentRect: NSRect(x: 0, y: 0, width: model.width, height: 200), styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered, defer: true)
         level = .popUpMenu
         isFloatingPanel = true
