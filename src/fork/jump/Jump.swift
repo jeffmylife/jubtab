@@ -96,7 +96,10 @@ enum Jump {
         guard !isRefreshing, Date().timeIntervalSince(lastLoad) > 2 else { return }
         isRefreshing = true
         loadQueue.async {
+            let started = Date()
             let items = JumpItems.load()
+            let counts = JumpItem.Section.allCases.map { s in "\(items.filter { $0.section == s }.count) \(s.title)" }
+            JumpSupport.log(String(format: "jump: loaded %@ in %.0fms", counts.joined(separator: ", "), Date().timeIntervalSince(started) * 1000))
             DispatchQueue.main.async {
                 isRefreshing = false
                 lastLoad = Date()
