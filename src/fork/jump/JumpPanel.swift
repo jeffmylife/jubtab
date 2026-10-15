@@ -9,6 +9,10 @@ final class JumpModel: ObservableObject {
     /// Bumped by keyboard moves only: the list scrolls to keep the selection visible, but must not scroll under
     /// a hovering mouse.
     @Published var keyboardMoves = 0
+    @Published var isSearching = false
+    @Published var query = ""
+    /// Title character ranges to bold for the current query, by item id.
+    var spans = [String: [Range<Int>]]()
     /// Panel width; the hover flyout is narrower than the ⌥Tab panel.
     let width: CGFloat
 
@@ -30,7 +34,13 @@ final class JumpModel: ObservableObject {
     }
 
     /// Keeps the same destination selected when a refresh reorders or adds items.
-    func replace(_ newItems: [JumpItem]) {
+    func replace(_ newItems: [JumpItem], resetSelection: Bool = false) {
+        if resetSelection {
+            items = newItems
+            selected = 0
+            keyboardMoves += 1
+            return
+        }
         let keep = selectedItem?.id
         items = newItems
         selected = keep.flatMap { id in newItems.firstIndex { $0.id == id } } ?? min(selected, max(newItems.count - 1, 0))
@@ -85,15 +95,18 @@ struct JumpView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if model.isSearching {
+                searchField
+                Divider()
+            }
             if model.items.isEmpty {
-                Text(model.isLoading ? "Looking for servers, workspaces and tabs…" : "Nothing to jump to")
-                    .foregroundColor(.secondary).padding(24)
+                Text(emptyText).foregroundColor(.secondary).padding(24)
             } else {
                 ScrollViewReader { proxy in
                     SwiftUI.ScrollView(.vertical, showsIndicators: false) {
                         VStack(alignment: .leading, spacing: 2) {
                             ForEach(Array(model.items.enumerated()), id: \.offset) { index, item in
-                                if index == 0 || model.items[index - 1].section != item.section {
+                                if model.query.isEmpty && (index == 0 || model.items[index - 1].section != item.section) {
                                     Text(item.section.title.uppercased())
                                         .font(.system(size: 11, weight: .semibold)).foregroundColor(.secondary)
                                         .padding(.horizontal, 12).padding(.top, index == 0 ? 4 : 12).padding(.bottom, 4)
@@ -116,6 +129,44 @@ struct JumpView: View {
         .onPreferenceChange(JumpRowFrames.self) { model.rowFrames = $0 }
     }
 
+    private var emptyText: String {
+        if model.isLoading { return "Looking for servers, workspaces and tabs…" }
+        return model.isSearching && !model.query.isEmpty ? "No matches" : "Nothing to jump to"
+    }
+
+    /// A drawn field rather than an NSTextField: the panel never becomes key, so Jump's event tap feeds it.
+    private var searchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass").foregroundColor(.secondary)
+            HStack(spacing: 1) {
+                if !model.query.isEmpty { Text(model.query) }
+                Rectangle().fill(Color.accentColor).frame(width: 2, height: 20)
+                if model.query.isEmpty { Text("Search windows, tabs, servers and workspaces").foregroundColor(.secondary) }
+            }
+            Spacer(minLength: 0)
+        }
+        .font(.system(size: 18))
+        .lineLimit(1)
+        .padding(.horizontal, 16).padding(.vertical, 13)
+    }
+
+    /// The title with the query's matched characters in bold.
+    private func title(_ item: JumpItem) -> Text {
+        let chars = Array(item.title)
+        guard let ranges = model.spans[item.id] else { return Text(item.title) }
+        var text = Text("")
+        var cursor = 0
+        for range in ranges.sorted(by: { $0.lowerBound < $1.lowerBound }) {
+            let lower = min(max(range.lowerBound, cursor), chars.count), upper = min(range.upperBound, chars.count)
+            guard lower < upper else { continue }
+            if cursor < lower { text = text + Text(String(chars[cursor..<lower])) }
+            text = text + Text(String(chars[lower..<upper])).bold()
+            cursor = upper
+        }
+        if cursor < chars.count { text = text + Text(String(chars[cursor...])) }
+        return text
+    }
+
     private func row(_ item: JumpItem, isSelected: Bool) -> some View {
         HStack(spacing: 12) {
             Group {
@@ -126,7 +177,7 @@ struct JumpView: View {
                 }
             }.frame(width: 26, height: 26)
             VStack(alignment: .leading, spacing: 2) {
-                Text(item.title).font(.system(size: 14, weight: .medium)).lineLimit(1)
+                title(item).font(.system(size: 14, weight: model.spans.isEmpty ? .medium : .regular)).lineLimit(1)
                 Text(item.subtitle).font(.system(size: 11.5)).foregroundColor(isSelected ? .white.opacity(0.85) : .secondary).lineLimit(1)
             }
             Spacer(minLength: 0)

@@ -3,8 +3,8 @@ import Cocoa
 /// Fork: one destination in the Jump switcher.
 struct JumpItem {
     enum Section: Int, CaseIterable {
-        case servers, workspaces, tabs
-        var title: String { ["Servers", "cmux", "Zen"][rawValue] }
+        case servers, workspaces, tabs, windows
+        var title: String { ["Servers", "cmux", "Zen", "Windows"][rawValue] }
     }
 
     let id: String
@@ -13,6 +13,10 @@ struct JumpItem {
     let subtitle: String
     let iconKey: String
     let action: () -> Void
+    /// Extra text search matches against besides the title: URL, folder, ports, app name.
+    var keywords = ""
+    /// Breaks ties between equally good search matches; most recent first.
+    var recency: Date?
 }
 
 /// Fork: reads every source and links them. A server is tied to the cmux workspace that owns its port or its
@@ -44,19 +48,23 @@ enum JumpItems {
                 iconKey: "server", action: {
                     // The session file lags ~15s, so a tab opened by the previous jump may only be findable by title.
                     if let tab { ZenTabs.activate(tab) } else if !(server.title.map { ZenTabs.press($0) } ?? false) { ZenTabs.open(server.url) }
-                }))
+                }, keywords: ([String(server.port), server.process] + context).joined(separator: " "), recency: tab?.lastAccessed))
         }
         for workspace in workspaces.sorted(by: { ($0.lastActive ?? .distantPast) > ($1.lastActive ?? .distantPast) }) {
             let folder = workspace.cwd.map { ($0 as NSString).abbreviatingWithTildeInPath }
             let ports = workspace.ports.map { ":\($0)" }
             let subtitle = ([folder].compactMap { $0 } + ports).joined(separator: "  ·  ")
             items.append(JumpItem(id: "cmux-\(workspace.id)", section: .workspaces, title: cleanTitle(workspace.title),
-                subtitle: subtitle, iconKey: CmuxWorkspaces.bundleId, action: { CmuxWorkspaces.select(workspace) }))
+                subtitle: subtitle, iconKey: CmuxWorkspaces.bundleId, action: { CmuxWorkspaces.select(workspace) },
+                keywords: ([workspace.cwd ?? ""] + workspace.ports.map(String.init)).joined(separator: " "), recency: workspace.lastActive))
         }
-        for tab in tabs.sorted(by: { ($0.lastAccessed ?? .distantPast) > ($1.lastAccessed ?? .distantPast) }) {
+        // A tab showing a listed server is that server's row ("open in Zen"); listing it again would be a duplicate.
+        let serverPorts = Set(servers.map(\.port))
+        for tab in tabs.sorted(by: { ($0.lastAccessed ?? .distantPast) > ($1.lastAccessed ?? .distantPast) })
+            where port(of: tab.url).map({ !serverPorts.contains($0) }) ?? true {
             let host = URL(string: tab.url).flatMap { u in u.host.map { h in u.port.map { "\(h):\($0)" } ?? h } } ?? tab.url
             items.append(JumpItem(id: "zen-\(tab.url)-\(tab.title)", section: .tabs, title: tab.title, subtitle: host,
-                iconKey: tab.favicon ?? ZenTabs.bundleId, action: { ZenTabs.activate(tab) }))
+                iconKey: tab.favicon ?? ZenTabs.bundleId, action: { ZenTabs.activate(tab) }, keywords: tab.url, recency: tab.lastAccessed))
         }
         return items
     }

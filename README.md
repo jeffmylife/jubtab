@@ -19,6 +19,7 @@ JubTab is my personal fork of [AltTab](https://github.com/lwouis/alt-tab-macos) 
   - **Zen** — open tabs, most recent first.
 
   Tab / ⇧Tab or the arrows move, the mouse hovers and clicks, releasing ⌥ jumps, <kbd>`</kbd> cancels.
+- **Search everything.** Tap ⌥Tab (press and let go) or double-tap ⌥, then type. One list ranks your windows, Zen tabs, cmux workspaces and servers by how well they match, matching titles plus URLs, folders and port numbers (`4173` finds that server). Things you pick often rise to the top. ↑↓ move, Return jumps, Esc closes.
 - **Side menus in ⌘Tab** *(experimental)*. Rest the pointer on the cmux or Zen tile and a menu of its workspaces, servers and tabs opens beside it. Click a row, or release ⌘ over it.
 - **Everything on.** No trial, no license checks, no upgrade prompts.
 - **I choose when to update.** The built-in updater is off; I merge upstream releases myself (see below).
