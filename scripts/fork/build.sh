@@ -20,6 +20,13 @@ rsync -a --exclude .git --exclude /build-fork --exclude /DerivedData --exclude n
 # consistently across every file is safe; preference keys and URLs other than the repository link don't contain "AltTab".
 find "$NEXT/src" "$NEXT/resources/l10n" "$NEXT/Info.plist" "$NEXT/docs/contributors.md" -type f \( -name '*.swift' -o -name '*.strings' -o -name 'Info.plist' -o -name '*.md' \) -print0 \
   | xargs -0 perl -pi -e 's#https://github\.com/lwouis/alt-tab-macos#https://github.com/jeffmylife/jubtab#g; s/Alt-?Tab/JubTab/g; s/alt-tab-backend/license-backend/g'
+# Fork-only sources (src/fork) are appended to App.swift so the Xcode project file never needs editing;
+# #sourceLocation keeps compiler errors pointing at the real files.
+find "$NEXT/src/fork" -name '*.swift' | sort | while read -r f; do
+  printf '\n#sourceLocation(file: "%s", line: 1)\n' "$REPO/${f#$NEXT/}"
+  cat "$f"
+  printf '\n#sourceLocation()\n'
+done >>"$NEXT/src/App.swift"
 cp "$REPO/config/fork/app.png" "$NEXT/resources/icons/app/app.png"
 cp "$REPO/config/fork"/menubar-*.pdf "$NEXT/resources/icons/menubar/"
 

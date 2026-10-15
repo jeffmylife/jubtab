@@ -568,6 +568,7 @@ class App: AppCenterApplication {
         // Fork: never start Sparkle; the upstream appcast would replace this fork with upstream AltTab.
         // Updates come from scripts/fork/update.sh instead.
         PreferencesEvents.initialize()
+        Jump.start() // Fork: src/fork/jump, compiled in by scripts/fork/build.sh
         BenchmarkRunner.startIfNeeded()
         endFirstLaunchWithPopoverOrSettings()
         if pendingShowSettingsWindow {
