@@ -17,6 +17,7 @@ log() { echo "$(date '+%F %T') $1"; }
 [ -z "$(git status --porcelain --untracked-files=no)" ] || fail "uncommitted changes in the repo; skipped"
 
 git fetch -q upstream --tags
+git config merge.ours.driver true # .gitattributes keeps our README.md on merge
 TAG=$(git describe --tags --abbrev=0 upstream/master)
 VERSION=${TAG#v}
 INSTALLED=$(defaults read "$APP/Contents/Info" CFBundleShortVersionString 2>/dev/null || echo none)
