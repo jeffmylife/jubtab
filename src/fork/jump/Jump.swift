@@ -34,7 +34,8 @@ enum Jump {
 
     private enum Key {
         static let tab: Int64 = 48, backtick: Int64 = 50, returnKey: Int64 = 36, enter: Int64 = 76, escape: Int64 = 53
-        static let up: Int64 = 126, down: Int64 = 125, delete: Int64 = 51, v: Int64 = 9, n: Int64 = 45, p: Int64 = 35
+        static let up: Int64 = 126, down: Int64 = 125, left: Int64 = 123, right: Int64 = 124, delete: Int64 = 51
+        static let a: Int64 = 0, c: Int64 = 8, v: Int64 = 9, x: Int64 = 7, n: Int64 = 45, p: Int64 = 35, space: Int64 = 49
     }
 
     static func start() {
@@ -129,14 +130,18 @@ enum Jump {
         }
     }
 
-    /// Search mode owns the keyboard: printable keys type, the rest navigate. ⌘ and ⌃ shortcuts other than the
-    /// few handled here close search and go through, so ⌘Tab and friends still work.
+    /// Search mode owns the keyboard: printable keys type, the rest navigate or edit like a text field (⌘A, ⌘C,
+    /// ⌘X, ⌘V). Other ⌘/⌃ shortcuts are ignored, except the system switchers (⌘Tab, ⌘`, ⌘Space), which close
+    /// search and go through.
     private static func handleSearchKey(_ type: CGEventType, _ event: CGEvent) -> CGEvent? {
         guard type == .keyDown else { return type == .keyUp ? nil : event }
         let flags = event.flags
         let key = event.getIntegerValueField(.keyboardEventKeycode)
         let command = flags.contains(.maskCommand), control = flags.contains(.maskControl)
         switch key {
+            case Key.tab where command, Key.backtick where command, Key.space where command:
+                DispatchQueue.main.async { hide() }
+                return event
             case Key.escape: DispatchQueue.main.async { hide() }
             case Key.returnKey, Key.enter: DispatchQueue.main.async { commit() }
             case Key.down: DispatchQueue.main.async { model.move(1) }
@@ -146,20 +151,33 @@ enum Jump {
             case Key.p where control: DispatchQueue.main.async { model.move(-1) }
             case Key.delete:
                 let clear = command, word = flags.contains(.maskAlternate)
-                DispatchQueue.main.async { setQuery(clear ? "" : word ? dropLastWord(model.query) : String(model.query.dropLast())) }
+                DispatchQueue.main.async {
+                    setQuery(clear || model.queryIsSelected ? "" : word ? dropLastWord(model.query) : String(model.query.dropLast()))
+                }
+            case Key.left, Key.right: DispatchQueue.main.async { model.queryIsSelected = false }
+            case Key.a where command: DispatchQueue.main.async { model.queryIsSelected = !model.query.isEmpty }
+            case Key.c where command, Key.x where command:
+                let cut = key == Key.x
+                DispatchQueue.main.async {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(model.query, forType: .string)
+                    if cut { setQuery("") }
+                }
             case Key.v where command:
                 let pasted = NSPasteboard.general.string(forType: .string)?.components(separatedBy: .newlines).first ?? ""
-                DispatchQueue.main.async { setQuery(model.query + pasted) }
+                DispatchQueue.main.async { typeText(pasted) }
             default:
-                if command || control {
-                    DispatchQueue.main.async { hide() }
-                    return event
-                }
+                guard !command && !control else { return nil }
                 let typed = (NSEvent(cgEvent: event)?.characters ?? "").filter { isPrintable($0) }
                 guard !typed.isEmpty else { return nil }
-                DispatchQueue.main.async { setQuery(model.query + typed) }
+                DispatchQueue.main.async { typeText(typed) }
         }
         return nil
+    }
+
+    /// Appends, or replaces the query when ⌘A selected it.
+    private static func typeText(_ text: String) {
+        setQuery(model.queryIsSelected ? text : model.query + text)
     }
 
     private static func isPrintable(_ c: Character) -> Bool {
@@ -174,6 +192,7 @@ enum Jump {
 
     private static func setQuery(_ query: String) {
         guard isSearching else { return }
+        model.queryIsSelected = false
         model.query = query
         display(resetSelection: true)
     }
@@ -207,6 +226,7 @@ enum Jump {
         isSearching = false
         model.isSearching = false
         model.query = ""
+        model.queryIsSelected = false
         panel?.orderOut(nil)
     }
 

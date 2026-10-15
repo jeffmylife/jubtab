@@ -11,6 +11,8 @@ final class JumpModel: ObservableObject {
     @Published var keyboardMoves = 0
     @Published var isSearching = false
     @Published var query = ""
+    /// ⌘A in the search field: the whole query is selected, so typing replaces it and ⌫ clears it.
+    @Published var queryIsSelected = false
     /// Title character ranges to bold for the current query, by item id.
     var spans = [String: [Range<Int>]]()
     /// Panel width; the hover flyout is narrower than the ⌥Tab panel.
@@ -139,8 +141,10 @@ struct JumpView: View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass").foregroundColor(.secondary)
             HStack(spacing: 1) {
-                if !model.query.isEmpty { Text(model.query) }
-                Rectangle().fill(Color.accentColor).frame(width: 2, height: 20)
+                if !model.query.isEmpty {
+                    Text(model.query).background(model.queryIsSelected ? Color.accentColor.opacity(0.35) : Color.clear)
+                }
+                if !model.queryIsSelected { Rectangle().fill(Color.accentColor).frame(width: 2, height: 20) }
                 if model.query.isEmpty { Text("Search windows, tabs, servers and workspaces").foregroundColor(.secondary) }
             }
             Spacer(minLength: 0)
