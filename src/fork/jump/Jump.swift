@@ -1,7 +1,7 @@
 import Cocoa
 
-/// Fork: the Jump switcher. Hold ⌥⌘ and press Tab to list local servers, cmux workspaces and Zen tabs; Tab /
-/// ⇧Tab (or ↑↓) move, releasing ⌥ or ⌘ (or Return) jumps, ` cancels. Keys come through a dedicated event tap:
+/// Fork: the Jump switcher. Hold ⌥ and press Tab to list local servers, cmux workspaces and Zen tabs; Tab /
+/// ⇧Tab (or ↑↓, or the mouse) move, releasing ⌥ (or Return, or a click) jumps, ` cancels. Keys come through a dedicated event tap:
 /// JubTab's Carbon hotkey handler consumes every hotkey on the dispatcher target, so a hotkey would never reach us.
 enum Jump {
     private static let model = JumpModel()
@@ -44,7 +44,7 @@ enum Jump {
             return event
         }
         let flags = event.flags
-        let chordHeld = flags.contains(.maskCommand) && flags.contains(.maskAlternate) && !flags.contains(.maskControl)
+        let chordHeld = flags.contains(.maskAlternate) && !flags.contains(.maskCommand) && !flags.contains(.maskControl)
         if type == .flagsChanged {
             if isShowing && !chordHeld { DispatchQueue.main.async { commit() } }
             return event

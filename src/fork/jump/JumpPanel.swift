@@ -6,12 +6,22 @@ final class JumpModel: ObservableObject {
     @Published var items = [JumpItem]()
     @Published var selected = 0
     @Published var isLoading = false
+    /// Bumped by keyboard moves only: the list scrolls to keep the selection visible, but must not scroll under
+    /// a hovering mouse.
+    @Published var keyboardMoves = 0
+    /// Row frames in the panel's coordinates, reported by the view, for mouse hit-testing.
+    var rowFrames = [Int: CGRect]()
 
     var selectedItem: JumpItem? { items.indices.contains(selected) ? items[selected] : nil }
 
     func move(_ delta: Int) {
         guard !items.isEmpty else { return }
         selected = (selected + delta + items.count) % items.count
+        keyboardMoves += 1
+    }
+
+    func row(at point: CGPoint) -> Int? {
+        rowFrames.first { $0.value.contains(point) }?.key
     }
 
     /// Keeps the same destination selected when a refresh reorders or adds items.
@@ -57,10 +67,16 @@ final class JumpIcons: ObservableObject {
     }
 }
 
+struct JumpRowFrames: PreferenceKey {
+    static var defaultValue = [Int: CGRect]()
+    static func reduce(value: inout [Int: CGRect], nextValue: () -> [Int: CGRect]) {
+        value.merge(nextValue()) { $1 }
+    }
+}
+
 struct JumpView: View {
     @ObservedObject var model: JumpModel
     @ObservedObject var icons = JumpIcons.shared
-    let onPick: (Int) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -79,17 +95,20 @@ struct JumpView: View {
                                 }
                                 row(item, isSelected: index == model.selected)
                                     .id(index)
-                                    .contentShape(Rectangle())
-                                    .onTapGesture { onPick(index) }
+                                    .background(GeometryReader { geo in
+                                        Color.clear.preference(key: JumpRowFrames.self, value: [index: geo.frame(in: .named("jump"))])
+                                    })
                             }
                         }.padding(8)
                     }
-                    .onChange(of: model.selected) { index in proxy.scrollTo(index, anchor: .center) }
+                    .onChange(of: model.keyboardMoves) { _ in proxy.scrollTo(model.selected, anchor: .center) }
                 }
             }
         }
         .frame(width: 640)
         .frame(maxHeight: 560)
+        .coordinateSpace(name: "jump")
+        .onPreferenceChange(JumpRowFrames.self) { model.rowFrames = $0 }
     }
 
     private func row(_ item: JumpItem, isSelected: Bool) -> some View {
@@ -124,6 +143,7 @@ final class JumpPanel: NSPanel {
         backgroundColor = .clear
         isOpaque = false
         hasShadow = true
+        acceptsMouseMovedEvents = true
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
         let effect = NSVisualEffectView()
         effect.material = .hudWindow
@@ -132,7 +152,7 @@ final class JumpPanel: NSPanel {
         effect.wantsLayer = true
         effect.layer?.cornerRadius = 14
         effect.layer?.masksToBounds = true
-        let hosting = NSHostingView(rootView: JumpView(model: model, onPick: onPick))
+        let hosting = JumpHostingView(model: model, onPick: onPick)
         hosting.translatesAutoresizingMaskIntoConstraints = false
         effect.addSubview(hosting)
         NSLayoutConstraint.activate([
@@ -163,5 +183,45 @@ final class JumpPanel: NSPanel {
         content.layoutSubtreeIfNeeded()
         let size = content.fittingSize
         setFrame(NSRect(x: frame.midX - size.width / 2, y: frame.maxY - size.height, width: size.width, height: size.height), display: true)
+    }
+}
+
+/// Fork: mouse support. The panel never becomes key (it must not take focus from the app being left), and
+/// SwiftUI's hover and tap handling only run in the key window of the active app, so this view tracks the mouse
+/// itself: moving over a row selects it, clicking a row jumps to it.
+final class JumpHostingView: NSHostingView<JumpView> {
+    private let model: JumpModel
+    private let onPick: (Int) -> Void
+
+    init(model: JumpModel, onPick: @escaping (Int) -> Void) {
+        self.model = model
+        self.onPick = onPick
+        super.init(rootView: JumpView(model: model))
+    }
+
+    @MainActor required init(rootView: JumpView) { fatalError("use init(model:onPick:)") }
+    required init?(coder: NSCoder) { fatalError("use init(model:onPick:)") }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.filter { $0.owner === self && $0.userInfo?["jump"] != nil }.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .activeAlways, .inVisibleRect],
+            owner: self, userInfo: ["jump": true]))
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func mouseMoved(with event: NSEvent) {
+        if let index = row(event), index != model.selected { model.selected = index }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        if let index = row(event) { onPick(index) } else { super.mouseDown(with: event) }
+    }
+
+    private func row(_ event: NSEvent) -> Int? {
+        var point = convert(event.locationInWindow, from: nil)
+        if !isFlipped { point.y = bounds.height - point.y }
+        return model.row(at: point)
     }
 }
