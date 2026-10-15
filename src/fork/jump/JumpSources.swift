@@ -48,19 +48,22 @@ enum ZenTabs {
     /// Switches Zen to the tab by pressing its tab-strip element through Accessibility. Falls back to opening the
     /// URL when the tab isn't exposed (e.g. it lives in another Zen space), which duplicates it.
     static func activate(_ tab: Tab) {
-        guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first else {
-            open(tab.url)
-            return
+        if !press(tab.title) { open(tab.url) }
+    }
+
+    /// Presses the tab titled `title` in Zen's tab strip and brings Zen forward. False when Zen isn't running or
+    /// no such tab is exposed.
+    @discardableResult
+    static func press(_ title: String) -> Bool {
+        guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first,
+              let element = findTabElement(AXUIElementCreateApplication(app.processIdentifier), title) else {
+            JumpSupport.log("zen: no AX tab element titled \"\(title)\"")
+            return false
         }
-        if let element = findTabElement(AXUIElementCreateApplication(app.processIdentifier), tab.title) {
-            let status = AXUIElementPerformAction(element, kAXPressAction as CFString)
-            app.activate(options: [])
-            JumpSupport.log("zen: pressed tab \"\(tab.title)\" status \(status.rawValue)")
-            if status == .success { return }
-        } else {
-            JumpSupport.log("zen: no AX tab element titled \"\(tab.title)\"; opening URL")
-        }
-        open(tab.url)
+        let status = AXUIElementPerformAction(element, kAXPressAction as CFString)
+        app.activate(options: [])
+        JumpSupport.log("zen: pressed tab \"\(title)\" status \(status.rawValue)")
+        return status == .success
     }
 
     static func open(_ url: String) {

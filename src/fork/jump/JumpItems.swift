@@ -42,7 +42,8 @@ enum JumpItems {
             let subtitle = (["localhost:\(server.port)"] + context + (tab == nil ? [] : ["open in Zen"])).joined(separator: "  ·  ")
             items.append(JumpItem(id: "server-\(server.port)", section: .servers, title: title, subtitle: subtitle,
                 iconKey: "server", action: {
-                    if let tab { ZenTabs.activate(tab) } else { ZenTabs.open(server.url) }
+                    // The session file lags ~15s, so a tab opened by the previous jump may only be findable by title.
+                    if let tab { ZenTabs.activate(tab) } else if !(server.title.map { ZenTabs.press($0) } ?? false) { ZenTabs.open(server.url) }
                 }))
         }
         for workspace in workspaces.sorted(by: { ($0.lastActive ?? .distantPast) > ($1.lastActive ?? .distantPast) }) {
