@@ -129,6 +129,17 @@ enum LocalServers {
         return servers.compactMap { $0 }.sorted { $0.port < $1.port }
     }
 
+    /// SIGTERM so the server can shut down cleanly; SIGKILL if it is still running a few seconds later.
+    static func stop(_ server: Server) {
+        JumpSupport.log("server: stopping :\(server.port) pid \(server.pid) (\(server.process))")
+        kill(server.pid, SIGTERM)
+        DispatchQueue.global().asyncAfter(deadline: .now() + 3) {
+            guard kill(server.pid, 0) == 0 else { return }
+            JumpSupport.log("server: pid \(server.pid) ignored SIGTERM; killing")
+            kill(server.pid, SIGKILL)
+        }
+    }
+
     /// GUI apps (LM Studio, Notion, AirPlay's ControlCenter…) serve their own pages; dev servers are plain CLI
     /// processes. Python is the exception: framework builds run as Python.app.
     private static func isBundledApp(_ pid: Int32) -> Bool {

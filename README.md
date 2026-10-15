@@ -14,7 +14,7 @@ JubTab is my personal fork of [AltTab](https://github.com/lwouis/alt-tab-macos) 
 ## What's different
 
 - **⌥Tab — search everything.** Press ⌥Tab (tap or hold) or double-tap ⌥, then type. One list ranks your windows, Zen tabs, cmux workspaces and local servers by how well they match, matching titles plus URLs, folders and port numbers (`4173` finds that server). Before you type, it lists:
-  - **Servers** — every local port that serves a web page, named by the page's title and linked to the cmux workspace it runs in. Picking one switches to the Zen tab already showing it, or opens one.
+  - **Servers** — every local port that serves a web page, named by the page's title and linked to the cmux workspace it runs in. Picking one switches to the Zen tab already showing it, or opens one. Hover a server and click the **×** on its right to shut it down.
   - **Windows**, **cmux** workspaces and **Zen** tabs, most recent first.
 
   ↑↓ or Tab move (even with ⌥ still held), Return or a click jumps, Esc closes. Letting go of ⌥ never jumps, so nothing opens unless you pick it. Things you pick often rise to the top.

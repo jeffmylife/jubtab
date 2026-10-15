@@ -22,10 +22,15 @@ enum JumpFlyout {
     ]
 
     static func start() {
-        panel = JumpPanel(model) { index in
+        panel = JumpPanel(model, onPick: { index in
             model.selected = index
             pick()
-        }
+        }, onStop: { index in
+            guard model.items.indices.contains(index) else { return }
+            let id = model.items[index].id
+            Jump.stop(item: model.items[index])
+            model.items.removeAll { $0.id == id }
+        })
         panel?.level = NSWindow.Level(rawValue: NSWindow.Level.popUpMenu.rawValue + 1)
         NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { note in
             if note.object is TilesPanel { startWatching() }

@@ -17,6 +17,8 @@ struct JumpItem {
     var keywords = ""
     /// Breaks ties between equally good search matches; most recent first.
     var recency: Date?
+    /// Servers only: shuts the process down (the row's × button).
+    var stop: (() -> Void)?
 }
 
 /// Fork: reads every source and links them. A server is tied to the cmux workspace that owns its port or its
@@ -48,7 +50,8 @@ enum JumpItems {
                 iconKey: "server", action: {
                     // The session file lags ~15s, so a tab opened by the previous jump may only be findable by title.
                     if let tab { ZenTabs.activate(tab) } else if !(server.title.map { ZenTabs.press($0) } ?? false) { ZenTabs.open(server.url) }
-                }, keywords: ([String(server.port), server.process] + context).joined(separator: " "), recency: tab?.lastAccessed))
+                }, keywords: ([String(server.port), server.process] + context).joined(separator: " "), recency: tab?.lastAccessed,
+                stop: { LocalServers.stop(server) }))
         }
         for workspace in workspaces.sorted(by: { ($0.lastActive ?? .distantPast) > ($1.lastActive ?? .distantPast) }) {
             let folder = workspace.cwd.map { ($0 as NSString).abbreviatingWithTildeInPath }

@@ -185,6 +185,9 @@ struct JumpView: View {
                 Text(item.subtitle).font(.system(size: 11.5)).foregroundColor(isSelected ? .white.opacity(0.85) : .secondary).lineLimit(1)
             }
             Spacer(minLength: 0)
+            if item.stop != nil && isSelected {
+                Image(systemName: "xmark.circle.fill").font(.system(size: 17)).opacity(0.9).help("Stop this server")
+            }
         }
         .foregroundColor(isSelected ? .white : .primary)
         .padding(.horizontal, 10).padding(.vertical, 7)
@@ -194,7 +197,7 @@ struct JumpView: View {
 
 /// Fork: a non-activating floating panel, so showing it never steals focus from the app you are leaving.
 final class JumpPanel: NSPanel {
-    init(_ model: JumpModel, onPick: @escaping (Int) -> Void) {
+    init(_ model: JumpModel, onPick: @escaping (Int) -> Void, onStop: @escaping (Int) -> Void = { _ in }) {
         super.init(contentRect: NSRect(x: 0, y: 0, width: model.width, height: 200), styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered, defer: true)
         level = .popUpMenu
@@ -212,7 +215,7 @@ final class JumpPanel: NSPanel {
         effect.wantsLayer = true
         effect.layer?.cornerRadius = 14
         effect.layer?.masksToBounds = true
-        let hosting = JumpHostingView(model: model, onPick: onPick)
+        let hosting = JumpHostingView(model: model, onPick: onPick, onStop: onStop)
         hosting.translatesAutoresizingMaskIntoConstraints = false
         effect.addSubview(hosting)
         NSLayoutConstraint.activate([
@@ -252,10 +255,14 @@ final class JumpPanel: NSPanel {
 final class JumpHostingView: NSHostingView<JumpView> {
     private let model: JumpModel
     private let onPick: (Int) -> Void
+    private let onStop: (Int) -> Void
+    /// The × sits in this much of the row's trailing edge.
+    private let stopButtonWidth: CGFloat = 40
 
-    init(model: JumpModel, onPick: @escaping (Int) -> Void) {
+    init(model: JumpModel, onPick: @escaping (Int) -> Void, onStop: @escaping (Int) -> Void) {
         self.model = model
         self.onPick = onPick
+        self.onStop = onStop
         super.init(rootView: JumpView(model: model))
     }
 
@@ -276,12 +283,22 @@ final class JumpHostingView: NSHostingView<JumpView> {
     }
 
     override func mouseDown(with event: NSEvent) {
-        if let index = row(event) { onPick(index) } else { super.mouseDown(with: event) }
+        guard let index = row(event) else { return super.mouseDown(with: event) }
+        if model.items.indices.contains(index), model.items[index].stop != nil, let frame = model.rowFrames[index],
+           point(event).x >= frame.maxX - stopButtonWidth {
+            onStop(index)
+        } else {
+            onPick(index)
+        }
     }
 
     private func row(_ event: NSEvent) -> Int? {
+        model.row(at: point(event))
+    }
+
+    private func point(_ event: NSEvent) -> CGPoint {
         var point = convert(event.locationInWindow, from: nil)
         if !isFlipped { point.y = bounds.height - point.y }
-        return model.row(at: point)
+        return point
     }
 }

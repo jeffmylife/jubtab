@@ -32,10 +32,12 @@ enum Jump {
     }
 
     static func start() {
-        panel = JumpPanel(model) { index in
+        panel = JumpPanel(model, onPick: { index in
             model.selected = index
             commit()
-        }
+        }, onStop: { index in
+            if model.items.indices.contains(index) { stop(item: model.items[index]) }
+        })
         installTap()
         NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { _ in
             guard isShowing, let panel, !NSMouseInRect(NSEvent.mouseLocation, panel.frame, false) else { return }
@@ -207,6 +209,15 @@ enum Jump {
         DispatchQueue.global(qos: .userInitiated).async { item.action() }
     }
 
+    /// A server row's ×: stop it, drop its row at once, then reload to confirm it is gone.
+    static func stop(item: JumpItem) {
+        guard let stop = item.stop else { return }
+        stop()
+        items.removeAll { $0.id == item.id }
+        display()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { refresh(force: true) }
+    }
+
     /// Hold mode lists the loaded sources as they are; search adds the windows and ranks by the query.
     private static func display(resetSelection: Bool = false) {
         guard isSearching else {
@@ -222,8 +233,8 @@ enum Jump {
 
     /// Sources take ~1s (lsof + HTTP probes + the cmux CLI), so the panel shows the last result at once and
     /// updates in place when the fresh one lands.
-    static func refresh() {
-        guard !isRefreshing, Date().timeIntervalSince(lastLoad) > 2 else { return }
+    static func refresh(force: Bool = false) {
+        guard !isRefreshing, force || Date().timeIntervalSince(lastLoad) > 2 else { return }
         isRefreshing = true
         loadQueue.async {
             let started = Date()
